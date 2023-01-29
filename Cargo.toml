@@ -1,7 +1,0 @@
-[package]
-name = "delta_lima"
-version = "0.1.0"
-edition = "2021"
-authors = ["Skepz skepz.dev@gmail.com"]
-
-[dependencies]
