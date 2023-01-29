@@ -1,0 +1,8 @@
+# Rust / Generated files
+debug/
+target/
+**/*.rs.bk
+*.pdb
+
+# Workspace files
+.idea/
