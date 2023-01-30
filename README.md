@@ -15,9 +15,8 @@ Completed and implemented: ✔️
 Planned but not done: ❌  
   
 ❌ Secure connections between client and server  
-❌ Desktop app with custom GUI  
-❌ Encrypted messages  
-❌ Encrypted image sharing  
 ❌ Group chats  
+❌ Desktop app with custom GUI  
+❌ image sharing  
 ❌ Mobile app  
-❌ Encrypted voice calling  
+❌ voice calling  
