@@ -1,6 +1,8 @@
 // Delta Lima Client main file
 
 use std::net::TcpStream;
+use better_term::read_input;
+use regex::Regex;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -20,6 +22,8 @@ fn main() {
     // turn the stream into a Connection structure
     let mut connection = Connection::new(stream);
 
+    println!("Connected!");
+
     // send a ping with version data to make the server happy
     if let Err(_) = connection.send(Packet::Ping { version: VERSION.to_string(), disconnecting: false }) {
         println!("ERROR: Failed to send version data to server! Disconnected.");
@@ -35,10 +39,10 @@ fn main() {
     match response.unwrap() {
         Packet::PingResponse { valid, accepted_version } => {
             if !valid {
-                println!("Invalid version! The server only accepts version {}. Disconnected.", accepted_version);
+                println!("Invalid version! The server only accepts version {}, and you are on {}. Disconnected.", accepted_version, VERSION);
                 return;
             }
-            println!("Valid version detected.")
+            println!("Valid version detected.");
         }
         _ => unreachable!()
     }

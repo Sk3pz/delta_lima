@@ -11,11 +11,11 @@ use crate::client::handle_connection;
 use crate::config::read_config;
 
 pub mod logging;
-mod config;
-mod client;
 pub mod database;
+pub mod config;
+mod client;
 
-pub const ACCEPTED_CLIENT_VERSION: &str = "0.1.0";
+pub const ACCEPTED_CLIENT_VERSION: &str = "0.1.1";
 pub const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // How long the main loop should wait between checking for incoming connections to save cpu resources
@@ -116,6 +116,7 @@ fn main() {
 
                 // handle handlers no longer in use
                 handlers.retain(|h| {
+                    debug!("Dropped a thread because it was finished.");
                     h.is_finished()
                 });
 

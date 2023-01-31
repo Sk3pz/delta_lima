@@ -17,12 +17,9 @@ pub fn to_epoch(time: SystemTime) -> Duration {
         .expect("Fatal error occurred: System time moved backwards! Are you a time traveler?")
 }
 
-pub struct LoginData {
-    pub username: String,
-    pub password: String,
-    pub signup: bool
-}
-
+// todo(skepz): Packets to add:
+//  - user list (Put as a part of the message packet?)
+//  - Add embedded files/images to messages as raw data
 pub enum Packet {
     /// Client --> Server | Check if client's version is valid
     /// disconnecting determines if the client is just checking compatibility or attempting a full connection
@@ -40,7 +37,6 @@ pub enum Packet {
     /// Client <-> Server | A way to announce an error has occurred, what the error is and if it requires a disconnection
     Error { should_disconnect: bool, error: String },
 }
-
 
 pub enum ExpectedPacket {
     // No reason to ever expect an Error or Disconnect packet, and they will only be received under a Message packet
