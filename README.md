@@ -15,7 +15,9 @@ Completed and implemented: ✔️
 Currently working on: ❔  
 Planned but not done: ❌  
   
-❔ Secure connections between client and server  
+✔️ Secure connections between client and server  
+❌ Login / Signup  
+❌ Messaging  
 ❌ Group chats  
 ❌ Desktop app with custom GUI  
 ❌ image sharing  
