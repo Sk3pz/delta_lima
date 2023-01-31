@@ -142,6 +142,7 @@ dependencies = [
 name = "dl_client"
 version = "0.1.0"
 dependencies = [
+ "better_term",
  "dl_network_common",
 ]
 

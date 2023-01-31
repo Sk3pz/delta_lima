@@ -15,7 +15,7 @@ pub fn expect_ping(connection: &mut Connection) -> bool {
         Packet::Ping { version, disconnecting } => {
             let valid = version.as_str() == ACCEPTED_CLIENT_VERSION;
 
-            if let Err(_) = connection.send(Packet::PingResponse { valid }) {
+            if let Err(_) = connection.send(Packet::PingResponse { valid, accepted_version: ACCEPTED_CLIENT_VERSION.to_string() }) {
                 warn!("Failed to send ping response to client. They may have disconnected");
                 return true;
             }

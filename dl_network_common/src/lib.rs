@@ -1,3 +1,4 @@
+use std::io;
 use std::net::TcpStream;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use capnp::message::Builder;
@@ -26,8 +27,8 @@ pub enum Packet {
     /// Client --> Server | Check if client's version is valid
     /// disconnecting determines if the client is just checking compatibility or attempting a full connection
     Ping { version: String, disconnecting: bool },
-    /// Client <-- Server | Respond if the client's version is valid
-    PingResponse { valid: bool },
+    /// Client <-- Server | Respond if the client's version is valid and the version the server is accepting
+    PingResponse { valid: bool, accepted_version: String },
     /// Client --> Server | Send a login or signup attempt to the server
     LoginRequest { username: String, password: String, signup: bool, },
     /// Client <-- Server | Send if the login attempt was valid or not, and if not send an error
@@ -46,15 +47,21 @@ pub enum ExpectedPacket {
     Ping, PingResponse, LoginRequest, LoginResponse, Message
 }
 
-pub struct Connection<'a> {
-    stream: &'a TcpStream,
+pub struct Connection {
+    stream: TcpStream,
 }
 
-impl<'a> Connection<'a> {
-    pub fn new(stream: &'a TcpStream) -> Self {
+impl Connection {
+    pub fn new(stream: TcpStream) -> Self {
         Self {
             stream,
         }
+    }
+
+    pub fn try_clone(&mut self) -> io::Result<Connection> {
+        Ok(Self {
+            stream: self.stream.try_clone()?
+        })
     }
 
     pub fn disconnect(&mut self) -> Result<(), String> {
@@ -74,9 +81,10 @@ impl<'a> Connection<'a> {
                 ep.set_version(version.as_str());
                 ep.set_disconnecting(disconnecting)
             }
-            Packet::PingResponse { valid} => {
+            Packet::PingResponse { valid, accepted_version: version } => {
                 let mut ep = message.init_root::<packet_capnp::ping_response::Builder>();
                 ep.set_valid(valid);
+                ep.set_version(version.as_str());
             }
             Packet::LoginRequest { username, password, signup } => {
                 let mut ep = message.init_root::<packet_capnp::login_request::Builder>();
@@ -144,7 +152,10 @@ impl<'a> Connection<'a> {
                 }
                 let ep = ep_raw.unwrap();
 
-                Ok(Packet::Ping { version: ep.get_version().unwrap().to_string(), disconnecting: ep.get_disconnecting() })
+                Ok(Packet::Ping {
+                    version: ep.get_version().unwrap().to_string(),
+                    disconnecting: ep.get_disconnecting()
+                })
             }
             ExpectedPacket::PingResponse => {
                 let ep_raw = msg_reader.get_root::<packet_capnp::ping_response::Reader>();
@@ -154,7 +165,10 @@ impl<'a> Connection<'a> {
                 }
                 let ep = ep_raw.unwrap();
 
-                Ok(Packet::PingResponse { valid: ep.get_valid() })
+                Ok(Packet::PingResponse {
+                    valid: ep.get_valid(),
+                    accepted_version: ep.get_version().unwrap().to_string()
+                })
             }
             ExpectedPacket::LoginRequest => {
                 let ep_raw = msg_reader.get_root::<packet_capnp::login_request::Reader>();

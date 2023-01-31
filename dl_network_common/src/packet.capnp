@@ -6,7 +6,8 @@ struct Ping @0xe2f2b985eeceb168 {
 }
 
 struct PingResponse @0xe91683d68ad92062 {
-    valid @0 :Bool;
+    valid   @0 :Bool;
+    version @1 :Text;
 }
 
 struct LoginRequest @0xe864be34e8f6bf9c {
