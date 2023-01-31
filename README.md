@@ -12,9 +12,10 @@ connection. Login information will only include a username and password, and an 
 
 ### Planned Features
 Completed and implemented: ✔️  
+Currently working on: ❔  
 Planned but not done: ❌  
   
-❌ Secure connections between client and server  
+❔ Secure connections between client and server  
 ❌ Group chats  
 ❌ Desktop app with custom GUI  
 ❌ image sharing  
