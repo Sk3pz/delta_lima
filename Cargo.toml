@@ -1,5 +1,6 @@
 [workspace]
 members = [
     "dl_server",
-    "dl_client"
+    "dl_client",
+    "dl_network_common"
 ]
