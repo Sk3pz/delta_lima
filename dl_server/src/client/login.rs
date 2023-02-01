@@ -27,7 +27,10 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
         };
 
         if signup {
-            return signup_handler(connection, dbclient, username, password);
+            if signup_handler(connection, &mut dbclient, username, password) {
+                continue;
+            }
+            break;
         }
 
         // get the password of the user from db to verify if the received password is correct
@@ -97,7 +100,7 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
     false
 }
 
-pub fn signup_handler(connection: &mut Connection, mut db: PooledConnection<PostgresConnectionManager<NoTls>>, uname: String, password: String) -> bool {
+pub fn signup_handler(connection: &mut Connection, db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, uname: String, password: String) -> bool {
 
     debug!("client attempting signup");
 
@@ -117,13 +120,5 @@ pub fn signup_handler(connection: &mut Connection, mut db: PooledConnection<Post
     }
 
     debug!("client signed up; username: {}", uname);
-
-    // signup worked
-    if connection.send(Packet::LoginResponse {
-        valid: true,
-        error: None
-    }).is_err() {
-        warn!("Client signup attempt with username {}: Failed to send failed login response!", uname);
-    }
     false
 }
