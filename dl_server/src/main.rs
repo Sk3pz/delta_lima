@@ -6,9 +6,13 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use dl_network_common::Connection;
-use crate::client::handle_connection;
-use crate::config::read_config;
+use better_term::flush_styles;
+use r2d2_postgres::postgres::NoTls;
+use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use dl_network_common::{validate_ip, validate_port};
+use crate::client::chandler;
+use crate::config::{config_path, read_config};
+use crate::database::get_db_address;
 
 pub mod logging;
 pub mod database;
@@ -24,20 +28,8 @@ const MAIN_LOOP_WAIT_DELAY_MS: u64 = 20;
 fn main() {
     info!("Reading IP and Port from config file...");
     // handle configuration
-    let cdir_r = std::env::current_dir();
-    if let Err(e) = cdir_r {
-        error!("Failed to create config file: no access! raw error: {}", e);
-        return;
-    }
-    let cdir = cdir_r.unwrap();
-    let current_dir_r = cdir.as_path().to_str();
-    if current_dir_r.is_none() {
-        error!("Could not access the config file!");
-        return;
-    }
-    let current_dir = current_dir_r.unwrap();
-    let config_path = format!("{}/config/config.toml", current_dir);
-    let raw_path = Path::new(&config_path);
+    let Ok(cfg_path) = config_path("config.toml") else { return; };
+    let raw_path = Path::new(&cfg_path);
     let config = read_config(raw_path, format!("\
     [server]\
     \n# ip: the ip to listen on\
@@ -56,16 +48,30 @@ fn main() {
     if let Some(server_conf) = config.server {
         if let Some(cfg_ip) = server_conf.ip {
             ip = cfg_ip;
+        } else {
+            warn!("Failed to read ip value from `~/config/config.toml`");
         }
         if let Some(cfg_port) = server_conf.port {
             port = cfg_port;
+        } else {
+            warn!("Failed to read ip value from `~/config/config.toml`");
         }
+    }
+
+    if !validate_ip(ip.clone()) {
+        error!("Invalid IP found in `~/config/config.toml`! If this issue persists, try deleting config.toml and re-running the program.");
+        return;
+    }
+
+    if !validate_port(port.clone()) {
+        error!("Invalid Port found in `~/config/config.toml`! If this issue persists, try deleting config.toml and re-running the program.");
+        return;
     }
 
     let full_ip = format!("{}:{}", ip, port);
 
     // Create the listener for incoming connection attempts
-    info!("Done! Starting server at {} on port {}", ip, port);
+    info!("Done! Starting server...");
     let listener_result = TcpListener::bind(full_ip.clone());
     let Ok(listener) = listener_result else {
         error!("Failed to bind listener to {}!", full_ip);
@@ -78,7 +84,43 @@ fn main() {
         return;
     }
 
-    // todo(skepz) database code here
+    info!("Connecting to and setting up the database...");
+
+    let database_info_result = get_db_address();
+    if let Err(e) = database_info_result {
+        error!("Failed to read database config: {}", e);
+        return;
+    }
+    let dbinfo = database_info_result.unwrap();
+
+    // create an r2d2 connection pool
+    let db_manager = PostgresConnectionManager::new(
+        format!("host={} port={} user={} password={}", dbinfo.ip, dbinfo.port, dbinfo.uname, dbinfo.pass).parse().unwrap(),
+        NoTls
+    );
+    let pool = r2d2::Pool::new(db_manager).unwrap();
+
+    let mut dbclient = pool.get().unwrap();
+
+    info!("Connected. Verifying tables...");
+
+    // ensure the correct tables are created on the database
+    dbclient.execute(
+        r"
+    CREATE TABLE IF NOT EXISTS user_data (
+        id       SERIAL PRIMARY KEY,
+        username VARCHAR UNIQUE NOT NULL,
+        password VARCHAR NOT NULL
+    );", &[]).expect("Failed to create database user_data table!");
+    dbclient.execute(
+        r"
+    CREATE TABLE IF NOT EXISTS unsent_msgs (
+        sender    VARCHAR NOT NULL,
+        recipient VARCHAR NOT NULL,
+        message   VARCHAR NOT NULL
+    );", &[]).expect("Failed to create database unsent_msgs table!");
+
+    info!("Verified! Setting things up...");
 
     // shutdown flag for threads
     let terminate = Arc::new(AtomicBool::new(false));
@@ -95,16 +137,19 @@ fn main() {
 
     let mut handlers = Vec::new();
 
+    info!("Done! Listening on {}:{}", ip, port);
+
     // listen for incoming connections
     for stream in listener.incoming() {
         match stream {
             Ok(s) => {
+                info!("New connection!");
                 // create db reference and termination reference
                 let tarc = Arc::clone(&terminate);
+                let pool = pool.clone();
 
                 handlers.push(thread::spawn(move || {
-                    // todo(skepz): create & call handle_connection function (takes s, link_arc and tarc)
-                    handle_connection(s, tarc);
+                    chandler(s, pool, tarc);
                 }));
             }
             Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
@@ -116,7 +161,7 @@ fn main() {
 
                 // handle handlers no longer in use
                 handlers.retain(|h| {
-                    debug!("Dropped a thread because it was finished.");
+                    info!("Dropped a thread because it was finished.");
                     h.is_finished()
                 });
 
@@ -147,5 +192,4 @@ fn main() {
     drop(listener);
 
     info!("Server shut down!");
-
 }

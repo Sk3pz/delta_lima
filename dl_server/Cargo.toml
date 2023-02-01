@@ -11,4 +11,4 @@ better_term = "*"
 toml = "*"
 serde = { version = "*", features = ["derive"] }
 ctrlc = "*"
-postgres = "*"
+r2d2_postgres = "*"

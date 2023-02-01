@@ -5,7 +5,7 @@ use crate::{ACCEPTED_CLIENT_VERSION, error, warn};
 /// returns true if disconnecting
 pub fn expect_ping(connection: &mut Connection) -> bool {
     // read ping
-    let mut response = connection.read(ExpectedPacket::Ping);
+    let response = connection.expect(ExpectedPacket::Ping);
     if let Err(e) = response {
         error!("Failed to read ping request: {}", e);
         return true;

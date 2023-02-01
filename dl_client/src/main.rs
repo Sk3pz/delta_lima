@@ -1,8 +1,6 @@
 // Delta Lima Client main file
 
 use std::net::TcpStream;
-use better_term::read_input;
-use regex::Regex;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,7 +29,7 @@ fn main() {
     }
 
     // expect a PingResponse from the server
-    let response = connection.read(ExpectedPacket::PingResponse);
+    let response = connection.expect(ExpectedPacket::PingResponse);
     if let Err(e) = response {
         println!("ERROR: Failed to read version data from server: {}", e);
         return;
@@ -43,6 +41,34 @@ fn main() {
                 return;
             }
             println!("Valid version detected.");
+        }
+        _ => unreachable!()
+    }
+
+    // DUMMY LOGIN INFO FOR TESTING
+    if connection.send(Packet::LoginRequest { username: format!("skepz"), password: format!("test"), signup: false }).is_err() {
+        println!("Failed to send dummy login info.");
+        return;
+    }
+
+    // expect a LoginResponse from the server
+    let response = connection.expect(ExpectedPacket::LoginResponse);
+    if let Err(e) = response {
+        println!("ERROR: Failed to login response data from server: {}", e);
+        return;
+    }
+    match response.unwrap() {
+        Packet::LoginResponse { valid, error } => {
+            if !valid {
+                let err = if let Some(e) = error {
+                    e
+                } else {
+                    format!("none")
+                };
+                println!("Invalid login: {}", err);
+                return;
+            }
+            println!("Logged in!");
         }
         _ => unreachable!()
     }

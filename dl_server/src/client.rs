@@ -1,17 +1,20 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-use dl_network_common::{Connection, Packet};
-use crate::{error, warn};
+use r2d2_postgres::postgres::NoTls;
+use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use dl_network_common::Connection;
+use crate::client::login::login_handler;
+use crate::error;
 use crate::client::ping::expect_ping;
 
 mod ping;
-mod message_sender;
-mod message_receiver;
+mod msg_sender;
+mod msg_receiver;
 mod login;
 
 /// Spawns a second thread
-pub fn handle_connection(stream: TcpStream, tarc: Arc<AtomicBool>) {
+pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTls>>, tarc: Arc<AtomicBool>) {
     // ensure the stream is non-blocking to match the listener
     if let Err(_) = stream.set_nonblocking(false) {
         error!("Failed to set stream to blocking, failed to properly handle connection!");
@@ -26,7 +29,12 @@ pub fn handle_connection(stream: TcpStream, tarc: Arc<AtomicBool>) {
         return;
     }
 
-    // todo(skepz): login / signup
+    // create a connection to the database
+    let mut dbclient = db.get().unwrap();
+
+    if login_handler(&mut connection, db) {
+        return;
+    }
 
     // todo(skepz): receiving and sending messages
 

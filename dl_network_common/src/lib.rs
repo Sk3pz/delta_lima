@@ -3,6 +3,7 @@ use std::net::TcpStream;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use capnp::message::Builder;
 use capnp::serialize;
+use regex::Regex;
 
 pub(crate) mod packet_capnp;
 
@@ -15,6 +16,20 @@ pub fn systime() -> Duration {
 pub fn to_epoch(time: SystemTime) -> Duration {
     time.duration_since(UNIX_EPOCH)
         .expect("Fatal error occurred: System time moved backwards! Are you a time traveler?")
+}
+
+pub fn validate_ip<S: Into<String>>(ip: S) -> bool {
+    let ip_pattern =
+        Regex::new(r"^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|localhost$")
+            .expect("Failed to init regex");
+    ip_pattern.is_match(ip.into().as_str())
+}
+
+pub fn validate_port<S: Into<String>>(port: S) -> bool {
+    let port_pattern =
+        Regex::new(r"^((6553[0-5])|(655[0-2][0-9])|(65[0-4][0-9]{2})|(6[0-4][0-9]{3})|([1-5][0-9]{4})|([0-5]{0,5})|([0-9]{1,4}))$")
+            .expect("Failed to init regex");
+    port_pattern.is_match(port.into().as_str())
 }
 
 // todo(skepz): Packets to add:
@@ -131,7 +146,7 @@ impl Connection {
     /// Expect a specific packet and read its data
     /// @param expected: the packet type to expect
     /// @return: Ok(..): the packet that was read, Err(..): An error message
-    pub fn read(&mut self, expected: ExpectedPacket) -> Result<Packet, String> {
+    pub fn expect(&mut self, expected: ExpectedPacket) -> Result<Packet, String> {
         let msg_reader_raw = serialize::read_message(&mut self.stream, ::capnp::message::ReaderOptions::new());
         if msg_reader_raw.is_err() {
             self.send_invalid_data_error()?;

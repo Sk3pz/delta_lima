@@ -7,4 +7,3 @@ authors = ["Eric Skepz <skepz.dev@gmail.com>"]
 [dependencies]
 dl_network_common = { path = "../dl_network_common"}
 better_term = "1.3.7"
-regex = "*"
