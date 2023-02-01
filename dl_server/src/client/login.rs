@@ -1,5 +1,6 @@
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
 use r2d2_postgres::postgres::NoTls;
+use r2d2_postgres::r2d2::{Pool, PooledConnection};
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 use crate::{debug, warn};
 
@@ -9,8 +10,8 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
 
     let mut dbclient = db.get().unwrap();
 
+    // store for logging purposes
     let mut uname = format!("");
-
     loop {
         // expect Login packet from client
         let expected = connection.expect(ExpectedPacket::LoginRequest);
@@ -26,7 +27,7 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
         };
 
         if signup {
-            return signup_handler(connection, db);
+            return signup_handler(connection, dbclient, username, password);
         }
 
         // get the password of the user from db to verify if the received password is correct
@@ -66,7 +67,7 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
         let row = query.get(0).unwrap();
         let qpass: String = row.get(0);
 
-        debug!("{} attempting login", username);
+        debug!("client attempting login under username {}", username);
 
         // password is invalid
         if password != qpass {
@@ -96,7 +97,33 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
     false
 }
 
-pub fn signup_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> bool {
+pub fn signup_handler(connection: &mut Connection, mut db: PooledConnection<PostgresConnectionManager<NoTls>>, uname: String, password: String) -> bool {
 
+    debug!("client attempting signup");
+
+    // attempt to create new user
+    let result = db.execute("INSERT INTO user_data(username, password) VALUES ($1, $2)",
+                            &[&(uname.as_str()), &(password.as_str())]);
+
+    if result.is_err() {
+        if connection.send(Packet::LoginResponse {
+            valid: false,
+            error: Some(format!("Username is taken"))
+        }).is_err() {
+            warn!("Failed to send Login Accept to {}", uname);
+        }
+        debug!("client failed to sign up with username {}", uname);
+        return true
+    }
+
+    debug!("client signed up; username: {}", uname);
+
+    // signup worked
+    if connection.send(Packet::LoginResponse {
+        valid: true,
+        error: None
+    }).is_err() {
+        warn!("Client signup attempt with username {}: Failed to send failed login response!", uname);
+    }
     false
 }
