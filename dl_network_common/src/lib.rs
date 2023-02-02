@@ -2,7 +2,8 @@ use std::io;
 use std::net::TcpStream;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use capnp::message::Builder;
-use capnp::serialize;
+use capnp::{message, serialize};
+use capnp::serialize::OwnedSegments;
 use regex::Regex;
 
 pub(crate) mod packet_capnp;
@@ -32,9 +33,9 @@ pub fn validate_port<S: Into<String>>(port: S) -> bool {
     port_pattern.is_match(port.into().as_str())
 }
 
-// todo(skepz): Packets to add:
-//  - user list (Put as a part of the message packet?)
-//  - Add embedded files/images to messages as raw data
+// todo(skepz): Things to do:
+//  - send-able user list (Put as a part of the message packet?)
+//  - Message IDs for identical messages
 pub enum Packet {
     /// Client --> Server | Check if client's version is valid
     /// disconnecting determines if the client is just checking compatibility or attempting a full connection
@@ -46,7 +47,7 @@ pub enum Packet {
     /// Client <-- Server | Send if the login attempt was valid or not, and if not send an error
     LoginResponse { valid: bool, error: Option<String> },
     /// Client <-> Server | A message sent from a client intended for another user
-    Message { messages: Vec<String>, sender: String, recipient: String },
+    Message { message: String, sender: String, recipient: String },
     /// Client <-> Server | A way to announce a disconnection is required or imminent
     Disconnect,
     /// Client <-> Server | A way to announce an error has occurred, what the error is and if it requires a disconnection
@@ -110,13 +111,10 @@ impl Connection {
                     ep.set_error(err.as_str());
                 }
             }
-            Packet::Message { messages, sender, recipient } => {
+            Packet::Message { message: msg, sender, recipient } => {
                 let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
                 let mut minit = ep.init_message();
-                let mut messages_builder = minit.reborrow().init_message(messages.len() as u32);
-                for x in 0..messages.len() {
-                    messages_builder.reborrow().set(x as u32, messages.get(x).unwrap().as_str())
-                }
+                minit.set_message(msg.as_str());
                 minit.set_sender(sender.as_str());
                 minit.set_recipient(recipient.as_str());
             }
@@ -147,16 +145,37 @@ impl Connection {
     /// @param expected: the packet type to expect
     /// @return: Ok(..): the packet that was read, Err(..): An error message
     pub fn expect(&mut self, expected: ExpectedPacket) -> Result<Packet, String> {
-        let msg_reader_raw = serialize::read_message(&mut self.stream, ::capnp::message::ReaderOptions::new());
+        let msg_reader_raw = serialize::read_message(&mut self.stream, ::capnp::message::ReaderOptions::default());
         if msg_reader_raw.is_err() {
             self.send_invalid_data_error()?;
             return Err(format!("Invalid or corrupt data was received!"));
         }
         let msg_reader = msg_reader_raw.unwrap();
 
+        self.parse_received(expected, msg_reader)
+    }
+
+    /// Check if there is a packet to read of an expected type
+    /// returns None if there is nothing to read, allowing the program to do other things
+    pub fn check_expected(&mut self, expected: ExpectedPacket) -> Result<Option<Packet>, String> {
+        let msg_reader_raw = serialize::try_read_message(&mut self.stream, ::capnp::message::ReaderOptions::default());
+        if msg_reader_raw.is_err() {
+            self.send_invalid_data_error()?;
+            return Err(format!("Invalid or corrupt data was received!"));
+        }
+        let msg_reader = msg_reader_raw.unwrap();
+
+        if msg_reader.is_none() {
+            return Ok(None);
+        }
+
+        Ok(Some(self.parse_received(expected, msg_reader.unwrap())?))
+    }
+
+    fn parse_received(&mut self, expected: ExpectedPacket, reader: message::Reader<OwnedSegments>) -> Result<Packet, String> {
         match expected {
             ExpectedPacket::Ping => {
-                let ep_raw = msg_reader.get_root::<packet_capnp::ping::Reader>();
+                let ep_raw = reader.get_root::<packet_capnp::ping::Reader>();
                 if let Err(_) = ep_raw {
                     self.send_invalid_data_error()?;
                     return Err(format!("Invalid data received! Disconnecting."));
@@ -169,7 +188,7 @@ impl Connection {
                 })
             }
             ExpectedPacket::PingResponse => {
-                let ep_raw = msg_reader.get_root::<packet_capnp::ping_response::Reader>();
+                let ep_raw = reader.get_root::<packet_capnp::ping_response::Reader>();
                 if let Err(_) = ep_raw {
                     self.send_invalid_data_error()?;
                     return Err(format!("Invalid data received! Disconnecting."));
@@ -182,7 +201,7 @@ impl Connection {
                 })
             }
             ExpectedPacket::LoginRequest => {
-                let ep_raw = msg_reader.get_root::<packet_capnp::login_request::Reader>();
+                let ep_raw = reader.get_root::<packet_capnp::login_request::Reader>();
                 if let Err(_) = ep_raw {
                     self.send_invalid_data_error()?;
                     return Err(format!("Invalid data received! Disconnecting."));
@@ -196,14 +215,14 @@ impl Connection {
                 })
             }
             ExpectedPacket::LoginResponse => {
-                let ep_raw = msg_reader.get_root::<packet_capnp::login_response::Reader>();
+                let ep_raw = reader.get_root::<packet_capnp::login_response::Reader>();
                 if let Err(_) = ep_raw {
                     self.send_invalid_data_error()?;
                     return Err(format!("Invalid data received! Disconnecting."));
                 }
                 let ep = ep_raw.unwrap();
 
-               return match ep.which() {
+                return match ep.which() {
                     Ok(packet_capnp::login_response::Valid(_)) => {
                         Ok(Packet::LoginResponse { valid: true, error: None })
                     }
@@ -217,7 +236,7 @@ impl Connection {
                 }
             }
             ExpectedPacket::Message => {
-                let ep_raw = msg_reader.get_root::<packet_capnp::big_boi_chonk::Reader>();
+                let ep_raw = reader.get_root::<packet_capnp::big_boi_chonk::Reader>();
                 if let Err(_) = ep_raw {
                     self.send_invalid_data_error()?;
                     return Err(format!("Invalid data received! Disconnecting."));
@@ -229,8 +248,7 @@ impl Connection {
                     Ok(packet_capnp::big_boi_chonk::Message(mreader)) => {
                         let mr = mreader.unwrap();
                         Ok(Packet::Message {
-                            messages: mr.get_message().unwrap()
-                                .iter().map(|m| { m.unwrap().to_string() }).collect::<Vec<String>>(),
+                            message: mr.get_message().unwrap().to_string(),
                             sender: mr.get_sender().unwrap().to_string(),
                             recipient: mr.get_recipient().unwrap().to_string(),
                         })
@@ -249,5 +267,5 @@ impl Connection {
                 }
             } // end of ExpectedPacket::Message
         } // end of match expected
-    } // end of read function
+    } // end of parse_received
 } // end of impl

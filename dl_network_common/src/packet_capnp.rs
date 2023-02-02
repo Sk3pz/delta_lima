@@ -678,7 +678,7 @@ pub mod message {
       self.reader.total_size()
     }
     #[inline]
-    pub fn get_message(self) -> ::capnp::Result<::capnp::text_list::Reader<'a>> {
+    pub fn get_message(self) -> ::capnp::Result<::capnp::text::Reader<'a>> {
       ::capnp::traits::FromPointerReader::get_from_pointer(&self.reader.get_pointer_field(0), ::core::option::Option::None)
     }
     #[inline]
@@ -750,16 +750,16 @@ pub mod message {
       self.builder.as_reader().total_size()
     }
     #[inline]
-    pub fn get_message(self) -> ::capnp::Result<::capnp::text_list::Builder<'a>> {
+    pub fn get_message(self) -> ::capnp::Result<::capnp::text::Builder<'a>> {
       ::capnp::traits::FromPointerBuilder::get_from_pointer(self.builder.get_pointer_field(0), ::core::option::Option::None)
     }
     #[inline]
-    pub fn set_message(&mut self, value: ::capnp::text_list::Reader<'a>) -> ::capnp::Result<()> {
-      ::capnp::traits::SetPointerBuilder::set_pointer_builder(self.builder.reborrow().get_pointer_field(0), value, false)
+    pub fn set_message(&mut self, value: ::capnp::text::Reader<'_>)  {
+      self.builder.reborrow().get_pointer_field(0).set_text(value);
     }
     #[inline]
-    pub fn init_message(self, size: u32) -> ::capnp::text_list::Builder<'a> {
-      ::capnp::traits::FromPointerBuilder::init_pointer(self.builder.get_pointer_field(0), size)
+    pub fn init_message(self, size: u32) -> ::capnp::text::Builder<'a> {
+      self.builder.get_pointer_field(0).init_text(size)
     }
     #[inline]
     pub fn has_message(&self) -> bool {

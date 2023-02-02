@@ -100,25 +100,27 @@ fn main() {
     );
     let pool = r2d2::Pool::new(db_manager).unwrap();
 
-    let mut dbclient = pool.get().unwrap();
+    let mut db_client = pool.get().unwrap();
 
     info!("Connected. Verifying tables...");
 
     // ensure the correct tables are created on the database
-    dbclient.execute(
+    db_client.execute(
         r"
     CREATE TABLE IF NOT EXISTS user_data (
         id       SERIAL PRIMARY KEY,
         username VARCHAR UNIQUE NOT NULL,
         password VARCHAR NOT NULL
     );", &[]).expect("Failed to create database user_data table!");
-    dbclient.execute(
+    db_client.execute(
         r"
     CREATE TABLE IF NOT EXISTS unsent_msgs (
         sender    VARCHAR NOT NULL,
         recipient VARCHAR NOT NULL,
         message   VARCHAR NOT NULL
     );", &[]).expect("Failed to create database unsent_msgs table!");
+    db_client.execute(
+        "SET timezone = \"America/Chicago\"", &[]).expect("Failed to set database timezone!");
 
     info!("Verified! Setting things up...");
 
@@ -192,4 +194,5 @@ fn main() {
     drop(listener);
 
     info!("Server shut down!");
+    flush_styles();
 }

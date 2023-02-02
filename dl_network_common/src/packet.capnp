@@ -24,7 +24,7 @@ struct LoginResponse @0xeb46a12204d9f07b {
 }
 
 struct Message @0x871881f4d77e2a9a {
-    message   @0 :List(Text);
+    message   @0 :Text;
     sender    @1 :Text;
     recipient @2 :Text;
 }

@@ -18,8 +18,8 @@ Planned but not done: ❌
 ✔️ Secure connections between client and server  
 ✔️ Database with PostgreSQL  
 ✔️ Login / Signup  
-❔ Messaging  
-❌ Group chats  
+✔️ Messaging  
+❔ Group chats  
 ❌ Desktop app with custom GUI  
 ❌ image sharing  
 ❌ Mobile app  
