@@ -10,18 +10,6 @@ Messages are encrypted with `insert algorithm name here` before they are event s
 clients involved. IPs used to connect and other connection information will never be logged on the server, only stored in ram during the duration of the
 connection. Login information will only include a username and password, and an email address may later be added to add a way to reset your password.
 
-### Planned Features
-Completed and implemented: ✔️  
-Currently working on: ❔  
-Planned but not done: ❌  
-  
-✔️ Secure connections between client and server  
-✔️ Database with PostgreSQL  
-✔️ Login / Signup  
-✔️ Messaging  
-❔ Group chats  
-❌ Desktop app with custom GUI  
-❌ Image sharing  
-❌ Database caching with Redis  
-❌ Mobile app  
-❌ Voice calling  
+### Future Plans and Current Features
+See the trello board for more information:  
+https://trello.com/b/NFyJND9Z/delta-lima
