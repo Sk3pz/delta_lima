@@ -2,6 +2,7 @@
 // DO NOT EDIT.
 // source: packet.capnp
 
+
 pub mod ping {
   #[derive(Copy, Clone)]
   pub struct Owned(());
@@ -700,11 +701,19 @@ pub mod message {
     pub fn has_recipient(&self) -> bool {
       !self.reader.get_pointer_field(2).is_null()
     }
+    #[inline]
+    pub fn get_timestamp(self) -> ::capnp::Result<::capnp::text::Reader<'a>> {
+      ::capnp::traits::FromPointerReader::get_from_pointer(&self.reader.get_pointer_field(3), ::core::option::Option::None)
+    }
+    #[inline]
+    pub fn has_timestamp(&self) -> bool {
+      !self.reader.get_pointer_field(3).is_null()
+    }
   }
 
   pub struct Builder<'a> { builder: ::capnp::private::layout::StructBuilder<'a> }
   impl <'a,> ::capnp::traits::HasStructSize for Builder<'a,>  {
-    const STRUCT_SIZE: ::capnp::private::layout::StructSize = ::capnp::private::layout::StructSize { data: 0, pointers: 3 };
+    const STRUCT_SIZE: ::capnp::private::layout::StructSize = ::capnp::private::layout::StructSize { data: 0, pointers: 4 };
   }
   impl <'a,> ::capnp::traits::HasTypeId for Builder<'a,>  {
     const TYPE_ID: u64 = _private::TYPE_ID;
@@ -795,6 +804,22 @@ pub mod message {
     #[inline]
     pub fn has_recipient(&self) -> bool {
       !self.builder.is_pointer_field_null(2)
+    }
+    #[inline]
+    pub fn get_timestamp(self) -> ::capnp::Result<::capnp::text::Builder<'a>> {
+      ::capnp::traits::FromPointerBuilder::get_from_pointer(self.builder.get_pointer_field(3), ::core::option::Option::None)
+    }
+    #[inline]
+    pub fn set_timestamp(&mut self, value: ::capnp::text::Reader<'_>)  {
+      self.builder.reborrow().get_pointer_field(3).set_text(value);
+    }
+    #[inline]
+    pub fn init_timestamp(self, size: u32) -> ::capnp::text::Builder<'a> {
+      self.builder.get_pointer_field(3).init_text(size)
+    }
+    #[inline]
+    pub fn has_timestamp(&self) -> bool {
+      !self.builder.is_pointer_field_null(3)
     }
   }
 

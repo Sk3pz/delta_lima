@@ -75,23 +75,26 @@ fn main() {
 
     // send a test message
     println!("Sending test message.");
-    connection.send(Packet::Message { message: format!("Test Message"), sender: format!("SELF"), recipient: format!("test") }).expect("Failed to send test message");
 
-    'main: loop {
+    let msg_timestamp =
+
+    connection.send(Packet::Message { message: format!("Test Message"), sender: format!(""), recipient: format!("test"), timestamp: format!("") }).expect("Failed to send test message");
+
+    loop {
         let incoming = connection.check_expected(ExpectedPacket::Message).expect("Failed to get message");
         if let Some(packet) = incoming {
             match packet {
-                Packet::Message { message, sender, .. } => {
-                    println!("MESSAGE from {} > {}", sender, message);
+                Packet::Message { message, sender, timestamp, .. } => {
+                    println!("MESSAGE from {} @ {} > {}", sender, timestamp, message);
                 }
                 Packet::Error { error, should_disconnect } => {
                     println!("Error from server: {}", error);
                     if should_disconnect {
-                        break 'main;
+                        break;
                     }
                 }
                 Packet::Disconnect => {
-                    break 'main;
+                    break;
                 }
                 _ => unreachable!()
             }

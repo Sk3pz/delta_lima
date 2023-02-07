@@ -1,4 +1,5 @@
 use std::path::Path;
+use chrono::{DateTime, Utc};
 use r2d2_postgres::postgres::NoTls;
 use r2d2_postgres::PostgresConnectionManager;
 use r2d2_postgres::r2d2::PooledConnection;
@@ -72,10 +73,10 @@ pub fn get_db_address() -> Result<DBInfo, String> {
 
 // == UNSENT_MSGS
 
-pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: i32, recipient: i32, message: String) -> Result<(), String> {
+pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: i32, recipient: i32, message: String, timestamp: DateTime<Utc>) -> Result<(), String> {
     if let Err(e) = db.execute(
-        "INSERT INTO unsent_msgs(sender, recipient, message, timestamp, id) VALUES ($1, $2, $3, null, $4)",
-        &[&sender, &recipient, &(message.as_str()), &(Uuid::new_v4())]) {
+        "INSERT INTO unsent_msgs(sender, recipient, message, timestamp, id) VALUES ($1, $2, $3, $4, $5)",
+        &[&sender, &recipient, &(message.as_str()), &timestamp, &(Uuid::new_v4())]) {
         return Err(format!("insert_msg.{}", e));
     }
 
@@ -86,13 +87,13 @@ pub struct DBMessageQuery {
     pub id: Uuid,
     pub sender: String,
     pub message: String,
-    // todo(skepz): timestamp here
+    pub timestamp: DateTime<Utc>,
 }
 
 pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, receiver: i32) -> Result<Option<DBMessageQuery>, String> {
     // todo(skepz): timestamps need to be handled here
     let msg_query_result = db.query(
-        "SELECT sender, message, id FROM unsent_msgs WHERE recipient=$1",
+        "SELECT sender, message, id, timestamp FROM unsent_msgs WHERE recipient=$1",
         &[&receiver]);
     if let Err(e) = msg_query_result {
         warn!("{}", e);
@@ -108,6 +109,7 @@ pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>,
     let sender: i32 = msg.get(0);
     let message: String = msg.get(1);
     let id: Uuid = msg.get(2);
+    let timestamp: DateTime<Utc> = msg.get(3);
 
     // get the username of the sender
     let sender_name = get_username_from_id(db, sender);
@@ -117,7 +119,7 @@ pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>,
 
     // return the message
     Ok(Some(DBMessageQuery {
-        id, message, sender: sender_name.unwrap()
+        id, message, sender: sender_name.unwrap(), timestamp
     }))
 }
 

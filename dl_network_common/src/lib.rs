@@ -46,7 +46,7 @@ pub enum Packet {
     /// Client <-- Server | Send if the login attempt was valid or not, and if not send an error
     LoginResponse { valid: bool, error: Option<String> },
     /// Client <-> Server | A message sent from a client intended for another user
-    Message { message: String, sender: String, recipient: String },
+    Message { message: String, sender: String, recipient: String, timestamp: String },
     /// Client <-> Server | A way to announce a disconnection is required or imminent
     Disconnect,
     /// Client <-> Server | A way to announce an error has occurred, what the error is and if it requires a disconnection
@@ -110,12 +110,13 @@ impl Connection {
                     ep.set_error(err.as_str());
                 }
             }
-            Packet::Message { message: msg, sender, recipient } => {
+            Packet::Message { message: msg, sender, recipient, timestamp } => {
                 let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
                 let mut minit = ep.init_message();
                 minit.set_message(msg.as_str());
                 minit.set_sender(sender.as_str());
                 minit.set_recipient(recipient.as_str());
+                minit.set_timestamp(timestamp.as_str());
             }
             Packet::Disconnect => {
                 let mut ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
@@ -250,6 +251,7 @@ impl Connection {
                             message: mr.get_message().unwrap().to_string(),
                             sender: mr.get_sender().unwrap().to_string(),
                             recipient: mr.get_recipient().unwrap().to_string(),
+                            timestamp: mr.get_timestamp().unwrap().to_string(),
                         })
                     }
                     Ok(packet_capnp::big_boi_chonk::Disconnect(_)) => {

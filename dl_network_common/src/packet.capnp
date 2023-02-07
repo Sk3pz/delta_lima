@@ -27,6 +27,7 @@ struct Message @0x871881f4d77e2a9a {
     message   @0 :Text;
     sender    @1 :Text;
     recipient @2 :Text;
+    timestamp @3 :Text;
 }
 
 struct Error @0x99bc0111f5e2f0fa {

@@ -1,22 +1,25 @@
 use std::net::TcpStream;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 use r2d2_postgres::postgres::NoTls;
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
-use dl_network_common::{Connection, ExpectedPacket, Packet};
+use dl_network_common::{Connection, Packet};
 use crate::client::login::login_handler;
-use crate::{debug, error, info, warn};
+use crate::{debug, info, warn};
+use crate::client::msg_receiver::msg_receive_handler;
 use crate::client::ping::expect_ping;
-use crate::database::{delete_msg, get_id_from_username, get_next_msg, insert_msg};
+use crate::database::{delete_msg, get_next_msg};
 
 mod ping;
 mod login;
+mod msg_receiver;
 
 /// Spawns a second thread
 pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>, tarc: Arc<AtomicBool>) {
-    // ensure the stream is non-blocking to match the listener
+    // ensure the stream is non-blocking
     if let Err(_) = stream.set_nonblocking(false) {
-        error!("Failed to set stream to blocking, failed to properly handle connection!");
+        warn!("Failed to set stream to blocking, failed to properly handle connection!");
         return;
     }
 
@@ -31,6 +34,12 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
     // create a connection to the database
     let mut db = db_pool.get().unwrap();
 
+    // handle before login to not waste time
+    let Ok(mut cloned_connection) = connection.try_clone() else {
+        warn!("Failed to create second connection reference for client handler!");
+        return;
+    };
+
     let Some(id) = login_handler(&mut connection, &mut db) else {
         return;
     };
@@ -39,68 +48,31 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
     // todo(skepz): add function that updates the client on how many messages are unread and send them before the client can send messages so
     //  messages dont get out of order
 
-    'main: loop {
+    let local_tarc = Arc::new(AtomicBool::new(false));
+
+    let ltarc_clone = Arc::clone(&local_tarc);
+
+    let msg_receiver = thread::spawn(move || {
+        msg_receive_handler(&mut cloned_connection, db_pool.clone(), id.clone(), ltarc_clone);
+    });
+
+    loop {
         // check if the server is shutting down
         if tarc.load(Ordering::SeqCst) {
             info!("Client received shutdown signal. Terminating connection");
+            // store for the msg_receiver
+            local_tarc.store(true, Ordering::SeqCst);
             if let Err(_) = connection.send(Packet::Disconnect) {
                 warn!("Failed to send disconnect to client, maybe they already disconnected?");
             }
             break;
         }
 
-        // check for incoming messages from client
-        if let Ok(pkt_opt) = connection.check_expected(ExpectedPacket::Message) {
-            if let Some(packet) = pkt_opt {
-                // handle incoming messages from client
-                match packet {
-                    Packet::Message { message, recipient, .. } => {
-                        // get the recipient's ID from username
-                        let rec_query = get_id_from_username(&mut db, recipient);
-                        if let Err(e) = rec_query {
-                            if connection.send(Packet::Error {
-                                error: format!("Invalid recipient"),
-                                should_disconnect: false
-                            }).is_err() {
-                                warn!("failed to send error message to client: {}", e);
-                                break;
-                            }
-                            warn!("Failed to get recipient ID from username: {}", e);
-                            continue;
-                        }
-                        let recipient_id = rec_query.unwrap();
-
-                        if let Err(e) = insert_msg(&mut db, id, recipient_id, message) {
-                            warn!("Failed to write message to database: {}", e);
-                            if connection.send(Packet::Error {
-                                error: format!("Database error"),
-                                should_disconnect: false
-                            }).is_err() {
-                                warn!("failed to send error message to client.");
-                                break;
-                            }
-                            continue;
-                        }
-                    }
-                    Packet::Disconnect => {
-                        break;
-                    }
-                    Packet::Error { error, should_disconnect } => {
-                        warn!("Client with id {} sent an error: {}.{}", id, error, if should_disconnect { " Disconnecting." } else { "" });
-                        if should_disconnect {
-                            break;
-                        }
-                    }
-                    _ => unreachable!()
-                }
+        if local_tarc.load(Ordering::SeqCst) {
+            if let Err(_) = connection.send(Packet::Disconnect) {
+                warn!("Failed to send disconnect to client, maybe they already disconnected?");
             }
-        } else {
-            warn!("Failed to read from client; disconnecting.");
-            if connection.send(Packet::Error { error: format!("Invalid data received."),
-                should_disconnect: true }).is_err() {
-                warn!("Failed to send disconnect message to client. Most likely they already disconnected.");
-            }
-            break 'main;
+            break;
         }
 
         // get the next message addressed to this user
@@ -113,7 +85,7 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
         // if there is a message, send it and remove it from the database
         if let Some(msg) = msg_query.unwrap() {
             // send the message
-            if connection.send(Packet::Message { message: msg.message, sender: msg.sender, recipient: format!("SELF") }).is_err() {
+            if connection.send(Packet::Message { message: msg.message, sender: msg.sender, recipient: format!("SELF"), timestamp: msg.timestamp.to_string() }).is_err() {
                 warn!("Failed to send message to client!");
                 continue;
             }
@@ -122,6 +94,11 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
                 warn!("Failed to delete message from database after sending: {}", e);
             }
         }
+    }
+
+    local_tarc.store(true, Ordering::SeqCst);
+    if let Err(_) = msg_receiver.join() {
+        warn!("Failed to join msg_receiver thread when shutting down client!");
     }
 
     info!("A client disconnected.");
