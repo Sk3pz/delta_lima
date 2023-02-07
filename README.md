@@ -21,6 +21,7 @@ Planned but not done: ❌
 ✔️ Messaging  
 ❔ Group chats  
 ❌ Desktop app with custom GUI  
-❌ image sharing  
+❌ Image sharing  
+❌ Database caching with Redis  
 ❌ Mobile app  
-❌ voice calling  
+❌ Voice calling  
