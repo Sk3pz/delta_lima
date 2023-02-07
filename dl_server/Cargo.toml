@@ -6,9 +6,17 @@ authors = ["Eric Skepz <skepz.dev@gmail.com>"]
 
 [dependencies]
 dl_network_common = { path = "../dl_network_common"}
-chrono = "*"
+chrono = "0.4.23"
 better_term = "*"
-toml = "*"
+toml = "0.7.1"
 serde = { version = "*", features = ["derive"] }
 ctrlc = "*"
 r2d2_postgres = "*"
+
+[dependencies.postgres]
+version = "*"
+features = ["with-uuid-1", "with-chrono-0_4"]
+
+[dependencies.uuid]
+version = "*"
+features = ["v4"]

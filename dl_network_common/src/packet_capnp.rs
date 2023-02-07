@@ -2,7 +2,6 @@
 // DO NOT EDIT.
 // source: packet.capnp
 
-
 pub mod ping {
   #[derive(Copy, Clone)]
   pub struct Owned(());

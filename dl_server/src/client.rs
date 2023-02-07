@@ -7,12 +7,13 @@ use dl_network_common::{Connection, ExpectedPacket, Packet};
 use crate::client::login::login_handler;
 use crate::{debug, error, info, warn};
 use crate::client::ping::expect_ping;
+use crate::database::{delete_msg, get_id_from_username, get_next_msg, insert_msg};
 
 mod ping;
 mod login;
 
 /// Spawns a second thread
-pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTls>>, tarc: Arc<AtomicBool>) {
+pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>, tarc: Arc<AtomicBool>) {
     // ensure the stream is non-blocking to match the listener
     if let Err(_) = stream.set_nonblocking(false) {
         error!("Failed to set stream to blocking, failed to properly handle connection!");
@@ -28,9 +29,9 @@ pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTl
     }
 
     // create a connection to the database
-    let mut dbclient = db.get().unwrap();
+    let mut db = db_pool.get().unwrap();
 
-    let Some(id) = login_handler(&mut connection, db.clone()) else {
+    let Some(id) = login_handler(&mut connection, &mut db) else {
         return;
     };
     debug!("Client logged in with ID: {}", id);
@@ -55,25 +56,21 @@ pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTl
                 match packet {
                     Packet::Message { message, recipient, .. } => {
                         // get the recipient's ID from username
-                        let rec_query_result = dbclient.query(
-                            format!("SELECT id FROM user_data WHERE username=$1").as_str(), &[&(recipient.as_str())]);
-                        if rec_query_result.is_err() {
+                        let rec_query = get_id_from_username(&mut db, recipient);
+                        if let Err(e) = rec_query {
                             if connection.send(Packet::Error {
                                 error: format!("Invalid recipient"),
                                 should_disconnect: false
                             }).is_err() {
-                                warn!("failed to send error message to client.");
+                                warn!("failed to send error message to client: {}", e);
                                 break;
                             }
+                            warn!("Failed to get recipient ID from username: {}", e);
+                            continue;
                         }
-                        let rec_query = rec_query_result.unwrap();
-                        let row = rec_query.get(0).unwrap();
-                        let recipient_id: i32 = row.get(0);
+                        let recipient_id = rec_query.unwrap();
 
-                        if let Err(e) = dbclient.execute(
-                            format!("INSERT INTO unsent_msgs(sender, recipient, message, timestamp) VALUES ({}, {}, '{}', null)",
-                                    id, recipient_id, message).as_str(),
-                            &[]) {
+                        if let Err(e) = insert_msg(&mut db, id, recipient_id, message) {
                             warn!("Failed to write message to database: {}", e);
                             if connection.send(Packet::Error {
                                 error: format!("Database error"),
@@ -82,6 +79,7 @@ pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTl
                                 warn!("failed to send error message to client.");
                                 break;
                             }
+                            continue;
                         }
                     }
                     Packet::Disconnect => {
@@ -105,48 +103,24 @@ pub fn chandler(stream: TcpStream, db: r2d2::Pool<PostgresConnectionManager<NoTl
             break 'main;
         }
 
-        // check database for messages addressed to this user
-        let msg_query_result = dbclient.query(
-            format!("SELECT sender, message FROM unsent_msgs WHERE recipient={}", id).as_str(),
-            &[]);
-        if let Err(e) = msg_query_result {
-            warn!("Database query error: {}", e);
+        // get the next message addressed to this user
+        let msg_query = get_next_msg(&mut db, id);
+        if let Err(e) = msg_query {
+            warn!("Failed to get next message: {}", e);
             continue;
         }
-        let msg_query = msg_query_result.unwrap();
 
-        // todo(skepz): this could be optimized by only handling one unsent message per loop, allowing for the user to still send messages while the server is sending them?
-        //  otherwise, depending on the amount of unread messages, it could back up.
-
-        'msg_query: for msg in msg_query {
-            let sender: i32 = msg.get(0);
-            let message: String = msg.get(1);
-
-            // todo(skepz): timestamps not yet implemented
-
-            // get username of sender
-            let sender_query_result = dbclient.query(
-                format!("SELECT username FROM user_data WHERE id={}", sender).as_str(), &[]);
-            if let Err(e) = sender_query_result {
-                warn!("Failed to get sender of an unset message! {}", e);
+        // if there is a message, send it and remove it from the database
+        if let Some(msg) = msg_query.unwrap() {
+            // send the message
+            if connection.send(Packet::Message { message: msg.message, sender: msg.sender, recipient: format!("SELF") }).is_err() {
+                warn!("Failed to send message to client!");
                 continue;
             }
-            let sender_query = sender_query_result.unwrap();
-            let sender_row = sender_query.get(0).unwrap();
-            let sender_name: String = sender_row.get(0);
 
-            // send the message
-            if connection.send(Packet::Message { message: message.clone(), sender: sender_name, recipient: format!("SELF") }).is_err() {
-                warn!("Failed to send message to client!");
-                break 'msg_query;
+            if let Err(e) = delete_msg(&mut db, msg.id) {
+                warn!("Failed to delete message from database after sending: {}", e);
             }
-
-            // remove the message from the database as it has now been sent
-            if let Err(e) = dbclient.execute(format!("DELETE FROM unsent_msgs WHERE recipient={} AND message='{}'", id, message).as_str(), &[]) {
-                warn!("A message could not be removed from the database! {}\n  > query: {}", e, format!("DELETE FROM unsent_msgs WHERE recipient={} AND message='{}'", id, message));
-                break;
-            }
-
         }
     }
 

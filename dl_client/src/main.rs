@@ -75,7 +75,7 @@ fn main() {
 
     // send a test message
     println!("Sending test message.");
-    connection.send(Packet::Message { message: format!("TEST MESSAGE TO test"), sender: format!("SELF"), recipient: format!("test") }).expect("Failed to send test message");
+    connection.send(Packet::Message { message: format!("Test Message"), sender: format!("SELF"), recipient: format!("test") }).expect("Failed to send test message");
 
     'main: loop {
         let incoming = connection.check_expected(ExpectedPacket::Message).expect("Failed to get message");

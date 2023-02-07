@@ -1,14 +1,13 @@
-use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use r2d2_postgres::PostgresConnectionManager;
 use r2d2_postgres::postgres::NoTls;
-use r2d2_postgres::r2d2::{Pool, PooledConnection};
+use r2d2_postgres::r2d2::PooledConnection;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 use crate::{debug, warn};
+use crate::database::{get_user_from_username, insert_user};
 
 /// Handles login and signup attempts from the client
 /// returns true if disconnecting
-pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnectionManager<NoTls>>) -> Option<i32> {
-
-    let mut dbclient = db.get().unwrap();
+pub fn login_handler(connection: &mut Connection, db: &mut PooledConnection<PostgresConnectionManager<NoTls>>) -> Option<i32> {
 
     // for storing the username for debugging
     let mut uname = format!("");
@@ -28,17 +27,25 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
             _ => unreachable!()
         };
 
+        // Handle if the user is signing up
         if signup {
-            if signup_handler(connection, &mut dbclient, username, password) {
+            if let Err(e) = insert_user(db, uname.clone(), password) {
+                if connection.send(Packet::LoginResponse {
+                    valid: false,
+                    error: Some(format!("Username is taken"))
+                }).is_err() {
+                    warn!("Failed to send Login Accept to {}", uname);
+                }
+                debug!("client failed to sign up with username {}: {}", uname, e);
                 continue;
             }
             break;
         }
 
         // get the password of the user from db to verify if the received password is correct
-        let query_result = dbclient.query(format!("SELECT id, password FROM user_data WHERE username='{}'", username).as_str(),
-                                          &[]);
-        if let Err(e) = query_result {
+        // this also gives the user's id to reduce the amount of database queries
+        let pass_query = get_user_from_username(db, username.clone());
+        if let Err(e) = pass_query {
             // query result sent an error
             warn!("Client login attempt with username {} sent a database error: {}", username, e);
             if connection.send(Packet::LoginResponse { valid: false, error: Some(format!("Invalid login credentials")) }).is_err() {
@@ -46,37 +53,12 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
             }
             continue;
         }
-        let query = query_result.unwrap();
-        if query.len() > 1 {
-            warn!("Client login attempt with username {} had multiple database entries!", username);
-            if connection.send(Packet::LoginResponse {
-                valid: false,
-                error: Some(format!("This user is corrupted in the database. Please let the system admin know!"))
-            }).is_err() {
-                warn!("Client login attempt with username {}: Failed to send failed login response!", username);
-                return None;
-            }
-            continue;
-        }
-        if query.len() == 0 {
-            // user with that name does not exist.
-            if connection.send(Packet::LoginResponse {
-                valid: false,
-                error: Some(format!("Invalid login credentials"))
-            }).is_err() {
-                warn!("Client login attempt with username {}: Failed to send failed login response!", username);
-                return None;
-            }
-            continue;
-        }
-        let row = query.get(0).unwrap();
-        id = row.get(0);
-        let qpass: String = row.get(1);
+        let (qid, pass) = pass_query.unwrap();
 
         debug!("client attempting login under username {}", username);
 
         // password is invalid
-        if password != qpass {
+        if password != pass {
             if connection.send(Packet::LoginResponse {
                 valid: false,
                 error: Some(format!("Invalid login credentials"))
@@ -89,9 +71,10 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
 
         debug!("{} logged in.", username);
         uname = username;
+        id = qid;
 
         break;
-    }
+    };
 
     if connection.send(Packet::LoginResponse {
         valid: true,
@@ -101,27 +84,4 @@ pub fn login_handler(connection: &mut Connection, db: r2d2::Pool<PostgresConnect
     }
 
     Some(id)
-}
-
-pub fn signup_handler(connection: &mut Connection, db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, uname: String, password: String) -> bool {
-
-    debug!("client attempting signup");
-
-    // attempt to create new user
-    let result = db.execute("INSERT INTO user_data(username, password) VALUES ($1, $2)",
-                            &[&(uname.as_str()), &(password.as_str())]);
-
-    if result.is_err() {
-        if connection.send(Packet::LoginResponse {
-            valid: false,
-            error: Some(format!("Username is taken"))
-        }).is_err() {
-            warn!("Failed to send Login Accept to {}", uname);
-        }
-        debug!("client failed to sign up with username {}", uname);
-        return true
-    }
-
-    debug!("client signed up; username: {}", uname);
-    false
 }

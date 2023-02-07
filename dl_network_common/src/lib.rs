@@ -34,8 +34,7 @@ pub fn validate_port<S: Into<String>>(port: S) -> bool {
 }
 
 // todo(skepz): Things to do:
-//  - send-able user list (Put as a part of the message packet?)
-//  - Message IDs for identical messages
+//  - sendable user list (Put as a part of the message packet?)
 pub enum Packet {
     /// Client --> Server | Check if client's version is valid
     /// disconnecting determines if the client is just checking compatibility or attempting a full connection
