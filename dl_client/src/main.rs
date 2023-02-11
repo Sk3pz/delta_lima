@@ -76,8 +76,6 @@ fn main() {
     // send a test message
     println!("Sending test message.");
 
-    let msg_timestamp =
-
     connection.send(Packet::Message { message: format!("Test Message"), sender: format!(""), recipient: format!("test"), timestamp: format!("") }).expect("Failed to send test message");
 
     loop {

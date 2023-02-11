@@ -12,6 +12,7 @@ toml = "0.7.1"
 serde = { version = "*", features = ["derive"] }
 ctrlc = "*"
 r2d2_postgres = "*"
+regex = "*"
 
 [dependencies.postgres]
 version = "*"

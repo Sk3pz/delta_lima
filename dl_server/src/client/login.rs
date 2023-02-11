@@ -1,9 +1,32 @@
 use r2d2_postgres::PostgresConnectionManager;
 use r2d2_postgres::postgres::NoTls;
 use r2d2_postgres::r2d2::PooledConnection;
+use regex::Regex;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 use crate::{debug, warn};
 use crate::database::{get_user_from_username, insert_user};
+
+pub fn validate_username(name: String) -> bool {
+
+    // ^([A-Za-z0-9_-]{2,17})$
+    let Ok(username_patt) = Regex::new("^([A-Za-z0-9_-]{2,17})$") else {
+        warn!("Failed to initialize regex pattern for username check.");
+        return false;
+    };
+
+    username_patt.is_match(name.as_str())
+}
+
+pub fn validate_password(pass: String) -> bool {
+
+    // old regex: ^([A-Za-z0-9~`!@#$%^&*()_+-=\[\]{}:;<>,.?/\\|]{2,33})$
+    let Ok(pass_patt) = Regex::new(r"^.{2,33}$") else {
+        warn!("Failed to initialize regex pattern for password check.");
+        return false;
+    };
+
+    pass_patt.is_match(pass.as_str())
+}
 
 /// Handles login and signup attempts from the client
 /// returns true if disconnecting
@@ -29,6 +52,29 @@ pub fn login_handler(connection: &mut Connection, db: &mut PooledConnection<Post
 
         // Handle if the user is signing up
         if signup {
+            // check username and password
+            if !validate_username(uname.clone()) {
+                if connection.send(Packet::LoginResponse {
+                    valid: false,
+                    error: Some(format!("Invalid characters in username"))
+                }).is_err() {
+                    warn!("Failed to send Login Accept to {}", uname);
+                }
+                debug!("client failed to sign up with username {}, invalid username.", uname);
+                continue;
+            }
+
+            if !validate_password(password.clone()) {
+                if connection.send(Packet::LoginResponse {
+                    valid: false,
+                    error: Some(format!("Invalid characters in password"))
+                }).is_err() {
+                    warn!("Failed to send Login Accept to {}", uname);
+                }
+                debug!("client failed to sign up with username {}, invalid username.", uname);
+                continue;
+            }
+
             if let Err(e) = insert_user(db, uname.clone(), password) {
                 if connection.send(Packet::LoginResponse {
                     valid: false,

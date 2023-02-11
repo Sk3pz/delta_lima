@@ -241,6 +241,7 @@ dependencies = [
  "dl_network_common",
  "postgres",
  "r2d2_postgres",
+ "regex",
  "serde",
  "toml",
  "uuid",
