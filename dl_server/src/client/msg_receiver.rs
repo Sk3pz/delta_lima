@@ -3,11 +3,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use chrono::{DateTime, Utc};
 use postgres::NoTls;
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
+use uuid::Uuid;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
 use crate::database::{get_id_from_username, insert_msg};
 use crate::warn;
 
-pub fn msg_receive_handler(connection: &mut Connection, db_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>, id: i32, tarc: Arc<AtomicBool>) {
+pub fn msg_receive_handler(connection: &mut Connection, db_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>, id: Uuid, tarc: Arc<AtomicBool>) {
 
     let Ok(mut db) = db_pool.get() else {
         warn!("Failed to get database instance for msg_receive_handler!");

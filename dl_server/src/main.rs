@@ -108,17 +108,21 @@ fn main() {
     db_client.execute(
         r"
     CREATE TABLE IF NOT EXISTS user_data (
-        id       SERIAL PRIMARY KEY,
+        id       UUID,
         username VARCHAR UNIQUE NOT NULL,
         password VARCHAR NOT NULL
     );", &[]).expect("Failed to create database user_data table!");
     db_client.execute(
         r"
     CREATE TABLE IF NOT EXISTS unsent_msgs (
-        sender    VARCHAR NOT NULL,
-        recipient VARCHAR NOT NULL,
-        message   VARCHAR NOT NULL
+        id UUID,
+        timestamp TIMESTAMP WITH TIME ZONE,
+        message VARCHAR,
+        sender UUID,
+        recipient UUID
     );", &[]).expect("Failed to create database unsent_msgs table!");
+
+    // this might not be needed later:
     db_client.execute(
         "SET timezone = \"America/Chicago\"", &[]).expect("Failed to set database timezone!");
 

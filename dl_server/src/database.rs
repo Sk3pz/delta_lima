@@ -73,7 +73,7 @@ pub fn get_db_address() -> Result<DBInfo, String> {
 
 // == UNSENT_MSGS
 
-pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: i32, recipient: i32, message: String, timestamp: DateTime<Utc>) -> Result<(), String> {
+pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: Uuid, recipient: Uuid, message: String, timestamp: DateTime<Utc>) -> Result<(), String> {
     if let Err(e) = db.execute(
         "INSERT INTO unsent_msgs(sender, recipient, message, timestamp, id) VALUES ($1, $2, $3, $4, $5)",
         &[&sender, &recipient, &(message.as_str()), &timestamp, &(Uuid::new_v4())]) {
@@ -90,7 +90,7 @@ pub struct DBMessageQuery {
     pub timestamp: DateTime<Utc>,
 }
 
-pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, receiver: i32) -> Result<Option<DBMessageQuery>, String> {
+pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, receiver: Uuid) -> Result<Option<DBMessageQuery>, String> {
     // todo(skepz): timestamps need to be handled here
     let msg_query_result = db.query(
         "SELECT sender, message, id, timestamp FROM unsent_msgs WHERE recipient=$1",
@@ -106,7 +106,7 @@ pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>,
     }
     let msg = msg_query.get(0).unwrap();
 
-    let sender: i32 = msg.get(0);
+    let sender: Uuid = msg.get(0);
     let message: String = msg.get(1);
     let id: Uuid = msg.get(2);
     let timestamp: DateTime<Utc> = msg.get(3);
@@ -134,15 +134,16 @@ pub fn delete_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, i
 
 // == USER_DATA
 
-pub fn insert_user(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String, password: String) -> Result<(), String> {
-    if let Err(e) = db.execute("INSERT INTO user_data(username, password) VALUES ($1, $2)",
-                               &[&(username.as_str()), &(password.as_str())]) {
+pub fn insert_user(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String, password: String) -> Result<Uuid, String> {
+    let id = Uuid::new_v4();
+    if let Err(e) = db.execute("INSERT INTO user_data(id, username, password) VALUES ($1, $2, $3)",
+                               &[&id, &(username.as_str()), &(password.as_str())]) {
         return Err(format!("insert_user.{}", e));
     }
-    Ok(())
+    Ok(id)
 }
 
-pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: i32) -> Result<String, String> {
+pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: Uuid) -> Result<String, String> {
     let query_result = db.query(
         "SELECT username FROM user_data WHERE id=$1", &[&id]);
     if let Err(e) = query_result {
@@ -160,7 +161,7 @@ pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<
     Ok(user.get(0))
 }
 
-pub fn get_id_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<i32, String> {
+pub fn get_id_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<Uuid, String> {
     let id_query = db.query(
         format!("SELECT id FROM user_data WHERE username=$1").as_str(), &[&(username.as_str())]);
     if let Err(e) = id_query {
@@ -178,7 +179,7 @@ pub fn get_id_from_username(db: &mut PooledConnection<PostgresConnectionManager<
     Ok(row.get(0))
 }
 
-pub fn get_user_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<(i32, String), String> {
+pub fn get_user_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<(Uuid, String), String> {
     let password_query = db.query(
         format!("SELECT id, password FROM user_data WHERE username=$1").as_str(), &[&(username.as_str())]);
     if let Err(e) = password_query {
