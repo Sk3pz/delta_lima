@@ -35,10 +35,27 @@ struct Error @0x99bc0111f5e2f0fa {
     error @1 :Text;
 }
 
+struct InfoRequest @0xf6e4cef1da11b597 {
+    union {
+        usernameExists @0 :Text;
+        usernameOnline @1 :Text;
+        msgHistory     @2 :Text;
+    }
+}
+
+struct InfoResponse @0xc19570b33879fd98 {
+    union {
+        userResponse @0 :Bool;
+        msgHistory   @1 :List(Message);
+    }
+}
+
 struct BigBoiChonk @0x880f3b0abb944bce {
     union {
         message @0 :Message;
         disconnect @1 :Bool;
-        error @2 :Error;
+        infoRequest @2 :InfoRequest;
+        infoResponse @3 :InfoResponse;
+        error @4 :Error;
     }
 }

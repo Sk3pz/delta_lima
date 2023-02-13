@@ -33,6 +33,12 @@ pub fn validate_port<S: Into<String>>(port: S) -> bool {
     port_pattern.is_match(port.into().as_str())
 }
 
+pub struct SentMsg {
+    message: String,
+    sender: String,
+    timestamp: String
+}
+
 pub enum Packet {
     /// Client --> Server | Check if client's version is valid
     /// disconnecting determines if the client is just checking compatibility or attempting a full connection
@@ -45,12 +51,23 @@ pub enum Packet {
     LoginResponse { valid: bool, error: Option<String> },
     /// Client <-> Server | A message sent from a client intended for another user
     Message { message: String, sender: String, recipient: String, timestamp: String },
+    /// Client --> Server | A request to see if a user with a specific name exists
+    UserExistsRequest { username: String },
+    /// Client --> Server | A request to see if a user with a specific name exists
+    UserOnlineRequest { username: String },
+    /// Server --> Client | A response responding to a UserExists or UserOnline with a true or false value
+    UserResponse { response: bool },
+    /// Client --> Server | A request to get the message history between self and a user
+    MsgHistoryRequest { username: String },
+    /// Server --> Client | The message history
+    MsgHistory { history: Vec<SentMsg> },
     /// Client <-> Server | A way to announce a disconnection is required or imminent
     Disconnect,
     /// Client <-> Server | A way to announce an error has occurred, what the error is and if it requires a disconnection
     Error { should_disconnect: bool, error: String },
 }
 
+/// was here
 pub enum ExpectedPacket {
     // No reason to ever expect an Error or Disconnect packet, and they will only be received under a Message packet
     Ping, PingResponse, LoginRequest, LoginResponse, Message
@@ -115,6 +132,43 @@ impl Connection {
                 minit.set_sender(sender.as_str());
                 minit.set_recipient(recipient.as_str());
                 minit.set_timestamp(timestamp.as_str());
+            }
+            Packet::UserExistsRequest { username } => {
+                let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
+                let mut init = ep.init_info_request();
+                init.set_username_exists(username.as_str());
+            }
+            Packet::UserOnlineRequest { username } => {
+                let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
+                let mut init = ep.init_info_request();
+                init.set_username_online(username.as_str());
+            }
+            Packet::UserResponse { response } => {
+                let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
+                let mut init = ep.init_info_response();
+                init.set_user_response(response);
+            }
+            Packet::MsgHistoryRequest { username } => {
+                let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
+                let mut init = ep.init_info_request();
+                init.set_msg_history(username.as_str());
+            }
+            Packet::MsgHistory { history } => {
+                let ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
+                let mut init = ep.init_info_response();
+                // initialize the message history list
+                let mut list = init.init_msg_history(history.len() as u32);
+
+                // build the list from the history vector
+                // there is probably a better way to do this, but I cant find it.
+                for x in 0..history.len() {
+                    let msg = history.get(x).unwrap();
+                    let index = x as u32;
+                    list.reborrow().get(index).set_message(msg.message.as_str());
+                    list.reborrow().get(index).set_timestamp(msg.timestamp.as_str());
+                    list.reborrow().get(index).set_sender(msg.sender.as_str());
+                    list.reborrow().get(index).set_recipient("");
+                }
             }
             Packet::Disconnect => {
                 let mut ep = message.init_root::<packet_capnp::big_boi_chonk::Builder>();
@@ -255,13 +309,57 @@ impl Connection {
                     Ok(packet_capnp::big_boi_chonk::Disconnect(_)) => {
                         Ok(Packet::Disconnect)
                     }
+                    Ok(packet_capnp::big_boi_chonk::InfoRequest(ireader)) => {
+                        match ireader.unwrap().which() {
+                            Ok(packet_capnp::info_request::UsernameOnline(ureader)) => {
+                                let ur = ureader.unwrap();
+                                Ok(Packet::UserOnlineRequest { username: ur.to_string() })
+                            }
+                            Ok(packet_capnp::info_request::UsernameExists(ureader)) => {
+                                let ur = ureader.unwrap();
+                                Ok(Packet::UserOnlineRequest { username: ur.to_string() })
+                            }
+                            Ok(packet_capnp::info_request::MsgHistory(ureader)) => {
+                                let ur = ureader.unwrap();
+                                Ok(Packet::UserOnlineRequest { username: ur.to_string() })
+                            }
+                            Err(::capnp::NotInSchema(_)) => {
+                                self.send_invalid_data_error()?;
+                                Err(format!("Invalid data received when expecting an info request! Disconnecting."))
+                            }
+                        }
+                    }
+                    Ok(packet_capnp::big_boi_chonk::InfoResponse(ireader)) => {
+                        match ireader.unwrap().which() {
+                            Ok(packet_capnp::info_response::UserResponse(response)) => {
+                                Ok(Packet::UserResponse { response })
+                            }
+                            Ok(packet_capnp::info_response::MsgHistory(hreader)) => {
+                                let reader = hreader.unwrap();
+                                let mut history = Vec::new();
+                                for msg in reader.into_iter() {
+                                    history.push(SentMsg {
+                                        message: msg.get_message().unwrap().to_string(),
+                                        sender: msg.get_sender().unwrap().to_string(),
+                                        timestamp: msg.get_timestamp().unwrap().to_string()
+                                    });
+                                }
+
+                                Ok(Packet::MsgHistory { history })
+                            }
+                            Err(::capnp::NotInSchema(_)) => {
+                                self.send_invalid_data_error()?;
+                                Err(format!("Invalid data received when expecting an info response! Disconnecting."))
+                            }
+                        }
+                    }
                     Ok(packet_capnp::big_boi_chonk::Error(ereader)) => {
                         let er = ereader.unwrap();
                         Ok(Packet::Error { should_disconnect: er.get_disconnect(), error: er.get_error().unwrap().to_string() })
                     }
                     Err(::capnp::NotInSchema(_)) => {
                         self.send_invalid_data_error()?;
-                        Err(format!("Invalid data received when expecting a login response! Disconnecting."))
+                        Err(format!("Invalid data received when expecting a message! Disconnecting."))
                     }
                 }
             } // end of ExpectedPacket::Message
