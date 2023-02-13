@@ -110,11 +110,12 @@ fn main() {
     CREATE TABLE IF NOT EXISTS user_data (
         id       UUID,
         username VARCHAR UNIQUE NOT NULL,
-        password VARCHAR NOT NULL
+        password VARCHAR NOT NULL,
+        online boolean NOT NULL
     );", &[]).expect("Failed to create database user_data table!");
     db_client.execute(
         r"
-    CREATE TABLE IF NOT EXISTS unsent_msgs (
+    CREATE TABLE IF NOT EXISTS messages (
         id UUID,
         timestamp TIMESTAMP WITH TIME ZONE,
         message VARCHAR,

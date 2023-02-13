@@ -9,7 +9,7 @@ use crate::client::login::login_handler;
 use crate::{debug, info, warn};
 use crate::client::msg_receiver::msg_receive_handler;
 use crate::client::ping::expect_ping;
-use crate::database::{delete_msg, get_next_msg};
+use crate::database::{delete_msg, get_next_msg, set_id_online};
 
 mod ping;
 mod login;
@@ -45,6 +45,12 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
     };
     debug!("Client logged in with ID: {}", id);
 
+    // set the user to online in the database
+    if let Err(e) = set_id_online(&mut db, &id, true) {
+        warn!("Database write error: could not set user {} to online. Error: {}", id, e);
+        return;
+    }
+
     // todo(skepz): add function that updates the client on how many messages are unread and send them before the client can send messages so
     //  messages dont get out of order
 
@@ -52,6 +58,7 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
 
     let ltarc_clone = Arc::clone(&local_tarc);
 
+    // spawn the message receiver thread to handle incoming messages to the client
     let msg_receiver = thread::spawn(move || {
         msg_receive_handler(&mut cloned_connection, db_pool.clone(), id.clone(), ltarc_clone);
     });
@@ -67,7 +74,6 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
             }
             break;
         }
-
         if local_tarc.load(Ordering::SeqCst) {
             if let Err(_) = connection.send(Packet::Disconnect) {
                 warn!("Failed to send disconnect to client, maybe they already disconnected?");
@@ -76,7 +82,7 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
         }
 
         // get the next message addressed to this user
-        let msg_query = get_next_msg(&mut db, id);
+        let msg_query = get_next_msg(&mut db, &id);
         if let Err(e) = msg_query {
             warn!("Failed to get next message: {}", e);
             continue;
@@ -90,7 +96,7 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
                 continue;
             }
 
-            if let Err(e) = delete_msg(&mut db, msg.id) {
+            if let Err(e) = delete_msg(&mut db, &msg.id) {
                 warn!("Failed to delete message from database after sending: {}", e);
             }
         }
@@ -99,6 +105,12 @@ pub fn chandler(stream: TcpStream, db_pool: r2d2::Pool<PostgresConnectionManager
     local_tarc.store(true, Ordering::SeqCst);
     if let Err(_) = msg_receiver.join() {
         warn!("Failed to join msg_receiver thread when shutting down client!");
+    }
+
+    // set the user to offline in the database
+    if let Err(e) = set_id_online(&mut db, &id, false) {
+        warn!("Database write error: could not set user {} to online. Error: {}", id, e);
+        return;
     }
 
     info!("A client disconnected.");

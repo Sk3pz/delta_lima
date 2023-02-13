@@ -73,6 +73,27 @@ fn main() {
         _ => unreachable!()
     }
 
+    // check if self is online
+    connection.send(Packet::UserOnlineRequest { username: format!("skepz") }).expect("Failed to send UserOnlineRequest to server!");
+
+    let online_response = connection.expect(ExpectedPacket::Message).expect("Failed to get UserResponse from server!");
+
+    match online_response {
+        Packet::UserResponse { response } => {
+            println!("I am {}", if response { "online!" } else { "offline" });
+        }
+        Packet::Disconnect => {
+            return;
+        }
+        Packet::Error {should_disconnect, error} => {
+            println!("Error from server: {}", error);
+            if should_disconnect {
+                return;
+            }
+        }
+        _ => unreachable!()
+    }
+
     // send a test message
     println!("Sending test message.");
 

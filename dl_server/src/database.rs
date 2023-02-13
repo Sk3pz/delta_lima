@@ -73,9 +73,9 @@ pub fn get_db_address() -> Result<DBInfo, String> {
 
 // == UNSENT_MSGS
 
-pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: Uuid, recipient: Uuid, message: String, timestamp: DateTime<Utc>) -> Result<(), String> {
+pub fn insert_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, sender: &Uuid, recipient: &Uuid, message: String, timestamp: DateTime<Utc>) -> Result<(), String> {
     if let Err(e) = db.execute(
-        "INSERT INTO unsent_msgs(sender, recipient, message, timestamp, id) VALUES ($1, $2, $3, $4, $5)",
+        "INSERT INTO messages(sender, recipient, message, timestamp, id) VALUES ($1, $2, $3, $4, $5)",
         &[&sender, &recipient, &(message.as_str()), &timestamp, &(Uuid::new_v4())]) {
         return Err(format!("insert_msg.{}", e));
     }
@@ -90,10 +90,10 @@ pub struct DBMessageQuery {
     pub timestamp: DateTime<Utc>,
 }
 
-pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, receiver: Uuid) -> Result<Option<DBMessageQuery>, String> {
+pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, receiver: &Uuid) -> Result<Option<DBMessageQuery>, String> {
     // todo(skepz): timestamps need to be handled here
     let msg_query_result = db.query(
-        "SELECT sender, message, id, timestamp FROM unsent_msgs WHERE recipient=$1",
+        "SELECT sender, message, id, timestamp FROM messages WHERE recipient=$1",
         &[&receiver]);
     if let Err(e) = msg_query_result {
         warn!("{}", e);
@@ -112,7 +112,7 @@ pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>,
     let timestamp: DateTime<Utc> = msg.get(3);
 
     // get the username of the sender
-    let sender_name = get_username_from_id(db, sender);
+    let sender_name = get_username_from_id(db, &sender);
     if let Err(e) = sender_name {
         return Err(format!("Failed to get sender of an unset message: {}", e));
     }
@@ -123,8 +123,8 @@ pub fn get_next_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>,
     }))
 }
 
-pub fn delete_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: Uuid) -> Result<(), String> {
-    if let Err(e) = db.execute("DELETE FROM unsent_msgs WHERE id=$1",
+pub fn delete_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: &Uuid) -> Result<(), String> {
+    if let Err(e) = db.execute("DELETE FROM messages WHERE id=$1",
                                      &[&id]) {
         return Err(format!("A message could not be removed from the database! {}", e));
     }
@@ -136,14 +136,25 @@ pub fn delete_msg(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, i
 
 pub fn insert_user(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String, password: String) -> Result<Uuid, String> {
     let id = Uuid::new_v4();
-    if let Err(e) = db.execute("INSERT INTO user_data(id, username, password) VALUES ($1, $2, $3)",
+    if let Err(e) = db.execute("INSERT INTO user_data(id, username, password, online) VALUES ($1, $2, $3, false)",
                                &[&id, &(username.as_str()), &(password.as_str())]) {
         return Err(format!("insert_user.{}", e));
     }
     Ok(id)
 }
 
-pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: Uuid) -> Result<String, String> {
+pub fn user_exists(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<bool, String> {
+    let query_result = db.query(
+        "SELECT id FROM user_data WHERE username=$1", &[&username]);
+    if let Err(e) = query_result {
+        return Err(format!("get_username_from_id.{}", e));
+    }
+    let user_rows = query_result.unwrap();
+
+    Ok(user_rows.len() != 0)
+}
+
+pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: &Uuid) -> Result<String, String> {
     let query_result = db.query(
         "SELECT username FROM user_data WHERE id=$1", &[&id]);
     if let Err(e) = query_result {
@@ -163,7 +174,7 @@ pub fn get_username_from_id(db: &mut PooledConnection<PostgresConnectionManager<
 
 pub fn get_id_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<Uuid, String> {
     let id_query = db.query(
-        format!("SELECT id FROM user_data WHERE username=$1").as_str(), &[&(username.as_str())]);
+        format!("SELECT id FROM user_data WHERE username=$1").as_str(), &[&username]);
     if let Err(e) = id_query {
         return Err(format!("get_id_from_username.{}", e));
     }
@@ -181,7 +192,7 @@ pub fn get_id_from_username(db: &mut PooledConnection<PostgresConnectionManager<
 
 pub fn get_user_from_username(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<(Uuid, String), String> {
     let password_query = db.query(
-        format!("SELECT id, password FROM user_data WHERE username=$1").as_str(), &[&(username.as_str())]);
+        format!("SELECT id, password FROM user_data WHERE username=$1").as_str(), &[&username]);
     if let Err(e) = password_query {
         return Err(format!("get_user_from_username.{}", e));
     }
@@ -195,4 +206,48 @@ pub fn get_user_from_username(db: &mut PooledConnection<PostgresConnectionManage
     let row = user_rows.get(0).unwrap();
 
     Ok((row.get(0), row.get(1)))
+}
+
+pub fn set_id_online(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, id: &Uuid, online: bool) -> Result<(), String> {
+    if let Err(e) = db.execute("UPDATE user_data SET online=$1 WHERE id=$2;",
+                               &[&online, &id]) {
+        return Err(format!("set_id_online.{}", e));
+    }
+    Ok(())
+}
+
+pub fn is_username_online(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, username: String) -> Result<bool, String> {
+    let online_query = db.query(
+        format!("SELECT online FROM user_data WHERE username=$1").as_str(), &[&username]);
+    if let Err(e) = online_query {
+        return Err(format!("is_username_online.{}", e));
+    }
+    let user_rows = online_query.unwrap();
+    if user_rows.len() > 1 {
+        return Err(format!("Multiple users with the same username found!"));
+    }
+    if user_rows.len() == 0 {
+        return Err(format!("Invalid username"));
+    }
+    let row = user_rows.get(0).unwrap();
+
+    Ok(row.get(0))
+}
+
+pub fn is_id_online(db: &mut PooledConnection<PostgresConnectionManager<NoTls>>, user: &Uuid) -> Result<bool, String> {
+    let online_query = db.query(
+        format!("SELECT online FROM user_data WHERE id=$1").as_str(), &[user]);
+    if let Err(e) = online_query {
+        return Err(format!("is_id_online.{}", e));
+    }
+    let user_rows = online_query.unwrap();
+    if user_rows.len() > 1 {
+        return Err(format!("Multiple users with the same username found!"));
+    }
+    if user_rows.len() == 0 {
+        return Err(format!("Invalid username"));
+    }
+    let row = user_rows.get(0).unwrap();
+
+    Ok(row.get(0))
 }

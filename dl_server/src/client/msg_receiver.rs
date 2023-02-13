@@ -5,7 +5,7 @@ use postgres::NoTls;
 use r2d2_postgres::{PostgresConnectionManager, r2d2};
 use uuid::Uuid;
 use dl_network_common::{Connection, ExpectedPacket, Packet};
-use crate::database::{get_id_from_username, insert_msg};
+use crate::database::{get_id_from_username, insert_msg, is_username_online, user_exists};
 use crate::warn;
 
 pub fn msg_receive_handler(connection: &mut Connection, db_pool: r2d2::Pool<PostgresConnectionManager<NoTls>>, id: Uuid, tarc: Arc<AtomicBool>) {
@@ -45,7 +45,7 @@ pub fn msg_receive_handler(connection: &mut Connection, db_pool: r2d2::Pool<Post
                         }
                         let recipient_id = rec_query.unwrap();
 
-                        if let Err(e) = insert_msg(&mut db, id, recipient_id, message, DateTime::from(Utc::now())) {
+                        if let Err(e) = insert_msg(&mut db, &id, &recipient_id, message, DateTime::from(Utc::now())) {
                             warn!("Failed to write message to database: {}", e);
                             if connection.send(Packet::Error {
                                 error: format!("Database error"),
@@ -56,6 +56,31 @@ pub fn msg_receive_handler(connection: &mut Connection, db_pool: r2d2::Pool<Post
                             }
                             continue;
                         }
+                    }
+                    Packet::UserOnlineRequest { username } => {
+                        let online = is_username_online(&mut db, username);
+                        if let Err(e) = online {
+                            warn!("Client online check failed to read database! Safely closing connection. Database Error: {}", e);
+                            break;
+                        }
+                        if connection.send(Packet::UserResponse { response: online.unwrap() }).is_err() {
+                            warn!("failed to send UserResponse to client.");
+                            break;
+                        }
+                    }
+                    Packet::UserExistsRequest { username } => {
+                        let exists = user_exists(&mut db, username);
+                        if let Err(e) = exists {
+                            warn!("Client exists check failed to read database! Safely closing connection. Database Error: {}", e);
+                            break;
+                        }
+                        if connection.send(Packet::UserResponse { response: exists.unwrap() }).is_err() {
+                            warn!("failed to send UserResponse to client.");
+                            break;
+                        }
+                    }
+                    Packet::MsgHistoryRequest { username } => {
+                        todo!()
                     }
                     Packet::Disconnect => {
                         break;
